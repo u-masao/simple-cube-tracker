@@ -25,6 +25,8 @@ let lastMove = null;       // 直近のMOVE {move, serial, cubeT}
 let lastMoveAtMs = -1e9;   // 直近のMOVEの相対ms(整合チェックの保留判定用)
 let lastFacelets = null;   // 直近のFACELETS(重複排除用)
 let pendingResync = false; // 高速ターン中の不一致を保留して再照合
+let lastCheckState = null;  // 直近に照合OK/基準セットした実機状態
+let movesSinceCheck = [];   // その後に記録した面手列(スライス推定の位置探索用)
 let dupCount = 0, missCount = 0, mismatchCount = 0, checkCount = 0;
 
 const DEADBAND_RAD = 2.5 * Math.PI / 180; // これ未満の姿勢変化は「ほぼ静止」として記録省略
@@ -123,21 +125,77 @@ function applyMove(s, m) {
   for (let k = 0; k < n; k++) a = p.map((i) => a[i]);
   return a.join('');
 }
+
+// スライス手(M/E/S)の「センター固定・エッジのみ」置換(幾何モデルから生成し面手で検証済み)。
+// GANキューブはコーナー/エッジのみ送り、スライスをMOVEとして報告しないため、
+// FACELETS差分からスライス手を推定するのに使う。各quarterは該当スライスの4エッジ8ステッカーのみ動く。
+const SLICE_PERM = {
+  M: [0,52,2,3,4,5,6,46,8,9,10,11,12,13,14,15,16,17,18,1,20,21,22,23,24,7,26,27,19,29,30,31,32,33,25,35,36,37,38,39,40,41,42,43,44,45,34,47,48,49,50,51,28,53],
+  E: [0,1,2,3,4,5,6,7,8,9,10,11,21,13,23,15,16,17,18,19,20,39,22,41,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,48,40,50,42,43,44,45,46,47,12,49,14,51,52,53],
+  S: [0,1,2,43,4,37,6,7,8,9,3,11,12,13,14,15,5,17,18,19,20,21,22,23,24,25,26,27,28,29,16,31,10,33,34,35,36,30,38,39,40,41,42,32,44,45,46,47,48,49,50,51,52,53],
+};
+function applySliceN(s, base, n) {
+  const perm = SLICE_PERM[base];
+  let a = s.split('');
+  for (let k = 0; k < n; k++) a = perm.map((i) => a[i]);
+  return a.join('');
+}
+// baseState に movesSinceCheck(面手列)を適用する途中のどこか1箇所にスライス手を挿入して
+// target に一致するものを探す。実際の解きでは M2 等が面手の間に入るため、位置も探索する。
+function inferSliceBurst(baseState, moves, target) {
+  if (baseState == null) return null;
+  let prefix = baseState;
+  for (let k = 0; k <= moves.length; k++) {
+    if (k > 0) prefix = applyMove(prefix, moves[k - 1]);
+    for (const base of ['M', 'E', 'S']) {
+      for (let n = 1; n <= 3; n++) {
+        let s = applySliceN(prefix, base, n);
+        for (let i = k; i < moves.length; i++) s = applyMove(s, moves[i]);
+        if (s === target) return base + (n === 1 ? '' : (n === 2 ? '2' : "'"));
+      }
+    }
+  }
+  return null;
+}
+
 let simState = null; // 直近のFACELETS基準に手順を適用した状態
+
+function syncCheckpoint(reported) {
+  // 照合が解決したので基準を更新
+  simState = reported;
+  lastCheckState = reported;
+  movesSinceCheck = [];
+  pendingResync = false;
+}
 
 function checkConsistency(reported) {
   checkCount++;
   if (simState == null) {
-    simState = reported;
     pushLog('CHECK', '基準状態をセットしました', 'meta');
+    syncCheckpoint(reported);
     updateQuality();
     return;
   }
   if (reported === simState) {
-    // 一致 → ログには出さず、件数だけ更新(保留があれば解消)
-    pendingResync = false;
+    // 一致 → ログには出さず、件数だけ更新
+    syncCheckpoint(reported);
     updateQuality();
     return;
+  }
+  // 不一致 → まずスライス手(M/E/S)で説明できるか試す。
+  // キューブはスライスをMOVEとして報告しないので、FACELETS差分から推定して記録する。
+  if ($('optInferSlice').checked) {
+    const slice = inferSliceBurst(lastCheckState, movesSinceCheck, reported);
+    if (slice) {
+      pushLog('SLICE', `${slice}   （スライス手: 実機状態から推定）`);
+      moveCount++;
+      $('statLastMove').textContent = slice;
+      lastMoveAtMs = relMs();
+      syncCheckpoint(reported);
+      updateStats();
+      updateQuality();
+      return;
+    }
   }
   // 不一致
   const sinceMove = relMs() - lastMoveAtMs;
@@ -153,8 +211,7 @@ function checkConsistency(reported) {
   mismatchCount++;
   const diff = [...reported].filter((c, i) => c !== simState[i]).length;
   pushLog('MISMATCH', `記録手順と実機が不一致（${diff}ステッカー差）→ 手の欠落/誤記録の可能性。基準を再セット`, 'err');
-  simState = reported;
-  pendingResync = false;
+  syncCheckpoint(reported);
   updateQuality();
 }
 
@@ -215,7 +272,7 @@ function fmtRel(ms) {
 }
 
 // type別の色クラス
-const CLASS_FOR = { MOVE: '', ROT: 'dim', FACELETS: 'meta', BATTERY: 'meta', HARDWARE: 'meta', CONNECT: 'meta', DISCONNECT: 'meta', CHECK: 'meta', MISSED: 'warn', MISMATCH: 'err' };
+const CLASS_FOR = { MOVE: '', SLICE: 'slice', ROT: 'dim', FACELETS: 'meta', BATTERY: 'meta', HARDWARE: 'meta', CONNECT: 'meta', DISCONNECT: 'meta', CHECK: 'meta', MISSED: 'warn', MISMATCH: 'err' };
 
 // 1行をログ(画面+配列)に追加
 function pushLog(type, detail, forceClass) {
@@ -279,7 +336,10 @@ function handleEvent(ev) {
       lastMove = { move: ev.move, serial, cubeT };
       lastMoveAtMs = relMs();
       moveCount++;
-      if (simState && $('optConsistency').checked) simState = applyMove(simState, ev.move);
+      if (simState && $('optConsistency').checked) {
+        simState = applyMove(simState, ev.move);
+        movesSinceCheck.push(ev.move);
+      }
       const extra = `serial=${serial ?? '-'}` + (cubeT != null ? ` cubeT=${cubeT}ms` : '');
       pushLog('MOVE', `${pad(ev.move, 3)}  ${extra}`);
       $('statLastMove').textContent = ev.move;
@@ -373,7 +433,8 @@ async function doConnect() {
     headerLines = [
       '# Speed Cube Tracker ログ',
       '# 形式: <接続からの相対秒>  <種別>  <詳細>',
-      '#   MOVE=回転操作(例 R, U\')  ROT=姿勢(クォータニオン/オイラー角°/角速度rad/s)',
+      '#   MOVE=回転操作(例 R, U\')  SLICE=スライス手(M/E/S, 実機状態から推定)',
+      '#   ROT=姿勢(クォータニオン/オイラー角°/角速度rad/s)',
       '#   FACELETS=キューブ状態(Kociemba表記)  BATTERY=電池  HARDWARE=機器情報',
       '#   MISSED=BLEレベルの取りこぼし  MISMATCH=記録手順と実機の不一致',
       '#   face順(オイラー/面): U,R,F,D,L,B / クォータニオンは (x, y, z, w)',
@@ -430,6 +491,7 @@ function resetCounters() {
   lastQ = null; lastQMs = 0; lastLoggedQ = null;
   lastMove = null; lastMoveAtMs = -1e9;
   lastFacelets = null; pendingResync = false;
+  lastCheckState = null; movesSinceCheck = [];
   dupCount = 0; missCount = 0; mismatchCount = 0; checkCount = 0;
   simState = null;
   updateStats(); updateQuality();
