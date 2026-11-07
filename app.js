@@ -35,9 +35,9 @@ const SETTLE_MS = 400;                    // 直近MOVEからこの時間内の�
 const SOLVED = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
 // スクランブル関連
 let currentScramble = [];   // 現在提示中のスクランブル(手の配列)
-let scramblePrefix = [];    // solvedから各手まで適用した状態(進捗判定用)
-let scrambleTarget = null;  // スクランブル適用後の状態
 let scrambleActive = false; // 追従中(完了すると false)
+let scrambleSi = 0;         // 適用済みの手数(進捗)
+let scrambleDouble = 0;     // ダブル手(例 U2)の途中カウント(0/1)
 
 // ---- 相対時刻(接続からの秒) ----
 const relMs = () => performance.now() - connectPerfMs;
@@ -352,6 +352,7 @@ function handleEvent(ev) {
       pushLog('MOVE', `${pad(ev.move, 3)}  ${extra}`);
       $('statLastMove').textContent = ev.move;
       updateStats();
+      scrambleOnMove(ev.move);
       break;
     }
     case 'GYRO': {
@@ -415,7 +416,6 @@ function handleEvent(ev) {
       break;
     }
   }
-  if (scrambleActive && simState) updateScrambleProgress();
 }
 
 // =====================================================================
@@ -606,34 +606,45 @@ function renderScramble(progress) {
 function onGenerateScramble() {
   const len = Math.min(40, Math.max(1, +$('scrambleLen').value || 20));
   currentScramble = generateScramble(len);
-  scramblePrefix = [SOLVED];
-  let s = SOLVED;
-  for (const m of currentScramble) { s = applyMove(s, m); scramblePrefix.push(s); }
-  scrambleTarget = s;
   scrambleActive = true;
+  scrambleSi = 0;
+  scrambleDouble = 0;
   renderScramble(0);
   const prog = $('scrambleProgress');
   prog.className = 'scramble-progress';
   prog.textContent = conn
-    ? 'キューブを標準向き・ソルブ済みにして、上の手順で回してください'
+    ? `キューブを回してください  次: ${currentScramble[0]}`
     : '（未接続：手動でスクランブルしてください）';
   if (conn) pushLog('SCRAMBLE', currentScramble.join(' '));
 }
 
-function updateScrambleProgress() {
-  if (!scrambleActive || !scrambleTarget || simState == null) return;
-  let p = 0;
-  for (let i = 1; i < scramblePrefix.length; i++) if (scramblePrefix[i] === simState) p = i;
-  renderScramble(p);
+// 手(MOVE)ごとにスクランブル進捗を更新。ダブル手(U2)は2クォーターとして扱う。
+// 途中状態や誤操作でも進捗を0に戻さない(前進のみ)。
+function scrambleOnMove(move) {
+  if (!scrambleActive || scrambleSi >= currentScramble.length) return;
+  const exp = currentScramble[scrambleSi];
+  const isDouble = exp.endsWith('2');
+  if (move === exp) {
+    // そのトークン(クォーター/プライム、または"R2"単体報告)に完全一致
+    scrambleSi++; scrambleDouble = 0;
+  } else if (isDouble && move[0] === exp[0]) {
+    // ダブル手を2クォーターで実施中
+    scrambleDouble++;
+    if (scrambleDouble >= 2) { scrambleDouble = 0; scrambleSi++; }
+  } else {
+    // 期待と違う手 → 進めない(0には戻さない)
+    scrambleDouble = 0;
+  }
+  renderScramble(scrambleSi);
   const el = $('scrambleProgress');
-  if (simState === scrambleTarget) {
+  if (scrambleSi >= currentScramble.length) {
     el.textContent = 'スクランブル完了 ✓  ソルブを開始できます';
     el.className = 'scramble-progress done';
     scrambleActive = false;
     pushLog('SCRAMBLE', '適用完了（ソルブ開始）');
   } else {
-    el.textContent = `適用 ${p} / ${currentScramble.length} 手`
-      + (p === 0 && simState !== SOLVED ? '（ソルブ済み・標準向きから始めてください）' : '');
+    el.textContent = `適用 ${scrambleSi} / ${currentScramble.length} 手  次: ${currentScramble[scrambleSi]}`
+      + (scrambleDouble ? '（あと1回転）' : '');
     el.className = 'scramble-progress';
   }
 }
