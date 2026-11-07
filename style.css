@@ -176,6 +176,7 @@ main {
   tab-size: 2;
 }
 .log .meta { color: var(--log-meta); }
+.log .slice { color: #c9a0ff; font-weight: 600; }
 .log .warn { color: var(--log-warn); }
 .log .err  { color: var(--log-err); }
 .log .dim  { color: #6b7686; }
