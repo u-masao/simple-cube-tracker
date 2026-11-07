@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Speed Cube Tracker</title>
+<meta name="description" content="GANスマートキューブの操作・回転をタイムスタンプ付きで記録し、LLMに貼り付けやすいテキストとして出力するブラウザツール">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header class="app-header">
+  <h1>Speed Cube Tracker</h1>
+  <p class="tagline">GANスマートキューブ（例: GAN i4 / i3 系）の<strong>モーションと回転</strong>を、タイムスタンプ付きで記録します。出力テキストはそのまま Gemini や Claude などの LLM に貼り付けて評価してもらえます。</p>
+</header>
+
+<main>
+  <!-- 接続まわり -->
+  <section class="panel">
+    <div class="controls">
+      <button id="btnConnect" class="btn btn-primary">接続</button>
+      <button id="btnDisconnect" class="btn" disabled>切断</button>
+      <button id="btnRefresh" class="btn" disabled title="キューブに現在の状態を問い合わせます">状態を確認</button>
+    </div>
+    <div id="status" class="status status-idle">未接続</div>
+  </section>
+
+  <!-- ステータス表示 -->
+  <section class="panel">
+    <div class="stat-grid">
+      <div class="stat"><span class="stat-label">デバイス</span><span id="statDevice" class="stat-value">—</span></div>
+      <div class="stat"><span class="stat-label">電池</span><span id="statBattery" class="stat-value">—</span></div>
+      <div class="stat"><span class="stat-label">手数</span><span id="statMoves" class="stat-value">0</span></div>
+      <div class="stat"><span class="stat-label">直近の手</span><span id="statLastMove" class="stat-value">—</span></div>
+      <div class="stat stat-wide"><span class="stat-label">現在の姿勢</span><span id="statOrient" class="stat-value">—</span></div>
+      <div class="stat stat-wide"><span class="stat-label">検出</span><span id="statQuality" class="stat-value">重複 0 ・ 欠落 0 ・ 不整合 0</span></div>
+    </div>
+  </section>
+
+  <!-- 記録オプション -->
+  <section class="panel">
+    <h2 class="panel-title">記録オプション</h2>
+    <div class="options">
+      <label class="opt"><input type="checkbox" id="optGyro" checked> 回転（ジャイロ）を記録</label>
+      <label class="opt">記録間隔 <input type="number" id="optGyroInterval" value="250" min="0" step="50" class="num"> ms<span class="hint">（0ですべて記録）</span></label>
+      <label class="opt"><input type="checkbox" id="optFacelets" checked> キューブ状態（FACELETS）を記録</label>
+      <label class="opt"><input type="checkbox" id="optConsistency" checked> 整合チェック（手順と実機の照合）</label>
+      <label class="opt"><input type="checkbox" id="optAutoscroll" checked> 自動スクロール</label>
+      <label class="opt"><input type="checkbox" id="optWakeLock" checked> 画面を常にオンにする</label>
+    </div>
+  </section>
+
+  <!-- ログ -->
+  <section class="panel">
+    <div class="log-toolbar">
+      <h2 class="panel-title">ログ</h2>
+      <div class="log-actions">
+        <button id="btnCopy" class="btn btn-small">コピー</button>
+        <button id="btnDownload" class="btn btn-small">ダウンロード</button>
+        <button id="btnClear" class="btn btn-small btn-danger">クリア</button>
+      </div>
+    </div>
+    <pre id="log" class="log" aria-live="polite"></pre>
+    <p id="toast" class="toast" role="status"></p>
+  </section>
+
+  <!-- 使い方 -->
+  <section class="panel help">
+    <h2 class="panel-title">使い方・メモ</h2>
+    <ul>
+      <li>対応ブラウザ: <strong>Android の Chrome</strong>、<strong>Windows の Chrome / Edge</strong>（Web Bluetooth 対応ブラウザ）。iOS の Safari は非対応です。</li>
+      <li>このページは <strong>HTTPS</strong> で開いてください（GitHub Pages ならそのまま条件を満たします）。<code>file://</code> では Bluetooth が使えません。</li>
+      <li><strong>接続</strong> を押すとブラウザのデバイス選択ダイアログが出ます。キューブを操作して起こしてから選んでください。</li>
+      <li>MAC アドレスを自動取得できない端末では入力を求められます。Android の Cube Station アプリの端末情報や nRF Connect などで確認できます（一度入力すると端末名ごとに保存されます）。</li>
+      <li>出力は時系列のテキストです。<strong>コピー</strong> または <strong>ダウンロード</strong> して LLM に貼り付けてください。API 連携はありません。</li>
+      <li><button id="btnForgetMac" class="linkbtn" type="button">保存した MAC アドレスを消去</button></li>
+    </ul>
+  </section>
+</main>
+
+<footer class="app-footer">
+  <span>ブラウザのみで動作（外部サーバー・API 不使用）</span>
+</footer>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
