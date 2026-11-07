@@ -20,8 +20,15 @@ let moveCount = 0;
 let gyroSeen = 0;          // 受信したGYRO総数(間引き前)
 let lastGyroLogMs = -1e9;  // 最後にGYROをログした相対ms
 let lastQ = null, lastQMs = 0;
+let lastLoggedQ = null;    // 最後にログした姿勢(デッドバンド判定用)
 let lastMove = null;       // 直近のMOVE {move, serial, cubeT}
+let lastMoveAtMs = -1e9;   // 直近のMOVEの相対ms(整合チェックの保留判定用)
+let lastFacelets = null;   // 直近のFACELETS(重複排除用)
+let pendingResync = false; // 高速ターン中の不一致を保留して再照合
 let dupCount = 0, missCount = 0, mismatchCount = 0, checkCount = 0;
+
+const DEADBAND_RAD = 2.5 * Math.PI / 180; // これ未満の姿勢変化は「ほぼ静止」として記録省略
+const SETTLE_MS = 400;                    // 直近MOVEからこの時間内の不一致は保留(高速ターンの偽陽性対策)
 
 // ---- 相対時刻(接続からの秒) ----
 const relMs = () => performance.now() - connectPerfMs;
@@ -123,16 +130,31 @@ function checkConsistency(reported) {
   if (simState == null) {
     simState = reported;
     pushLog('CHECK', '基準状態をセットしました', 'meta');
+    updateQuality();
     return;
   }
   if (reported === simState) {
-    pushLog('CHECK', `整合OK（${checkCount}回目）`, 'meta');
-  } else {
-    mismatchCount++;
-    const diff = [...reported].filter((c, i) => c !== simState[i]).length;
-    pushLog('MISMATCH', `記録手順と実機が不一致（${diff}ステッカー差）→ 手の欠落/誤記録の可能性。基準を再セット`, 'err');
-    simState = reported;
+    // 一致 → ログには出さず、件数だけ更新(保留があれば解消)
+    pendingResync = false;
+    updateQuality();
+    return;
   }
+  // 不一致
+  const sinceMove = relMs() - lastMoveAtMs;
+  if (sinceMove < SETTLE_MS) {
+    // 直前まで回していた → 高速ターン中の一時的な同期ズレの可能性。確定させず再照合。
+    if (!pendingResync) {
+      pendingResync = true;
+      setTimeout(() => { try { conn && conn.sendCubeCommand({ type: 'REQUEST_FACELETS' }); } catch (_) {} }, SETTLE_MS);
+    }
+    return;
+  }
+  // 落ち着いた状態での不一致 → 確定
+  mismatchCount++;
+  const diff = [...reported].filter((c, i) => c !== simState[i]).length;
+  pushLog('MISMATCH', `記録手順と実機が不一致（${diff}ステッカー差）→ 手の欠落/誤記録の可能性。基準を再セット`, 'err');
+  simState = reported;
+  pendingResync = false;
   updateQuality();
 }
 
@@ -187,11 +209,6 @@ function angSpeedFromQ(q1, q2, dtMs) {
 function pad(s, n) { s = String(s); return s.length >= n ? s : s + ' '.repeat(n - s.length); }
 function padL(s, n) { s = String(s); return s.length >= n ? s : ' '.repeat(n - s.length) + s; }
 
-function fmtWall(ms) {
-  const d = new Date(ms);
-  const p = (v, n = 2) => String(v).padStart(n, '0');
-  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
-}
 function fmtRel(ms) {
   const s = ms / 1000;
   return (s >= 0 ? '+' : '') + s.toFixed(3);
@@ -202,8 +219,7 @@ const CLASS_FOR = { MOVE: '', ROT: 'dim', FACELETS: 'meta', BATTERY: 'meta', HAR
 
 // 1行をログ(画面+配列)に追加
 function pushLog(type, detail, forceClass) {
-  const wall = Date.now();
-  const line = `${padL(fmtRel(relMs()), 9)}  ${fmtWall(wall)}  ${pad(type, 9)} ${detail}`;
+  const line = `${padL(fmtRel(relMs()), 9)}  ${pad(type, 9)} ${detail}`;
   logLines.push(line);
   appendToView(line, forceClass || CLASS_FOR[type] || '');
 }
@@ -230,7 +246,7 @@ function updateStats() {
   $('statMoves').textContent = String(moveCount);
 }
 function updateQuality() {
-  $('statQuality').textContent = `重複 ${dupCount} ・ 欠落 ${missCount} ・ 不整合 ${mismatchCount}`;
+  $('statQuality').textContent = `重複 ${dupCount} ・ 欠落 ${missCount} ・ 不整合 ${mismatchCount} ・ 照合 ${checkCount}`;
 }
 function setConnectedUI(on) {
   $('btnConnect').disabled = on;
@@ -261,6 +277,7 @@ function handleEvent(ev) {
         }
       }
       lastMove = { move: ev.move, serial, cubeT };
+      lastMoveAtMs = relMs();
       moveCount++;
       if (simState && $('optConsistency').checked) simState = applyMove(simState, ev.move);
       const extra = `serial=${serial ?? '-'}` + (cubeT != null ? ` cubeT=${cubeT}ms` : '');
@@ -275,16 +292,23 @@ function handleEvent(ev) {
       const t = relMs();
       const est = angSpeedFromQ(lastQ, q, t - lastQMs);
       lastQ = q; lastQMs = t;
-      // 画面の姿勢表示は常に更新(間引き対象外)
+      // 画面の姿勢表示は常に更新(間引き対象外)。レイアウトが動かないよう常に2行で表示。
       const e = quatToEuler(q);
       $('statOrient').textContent =
-        `q(${q.x.toFixed(2)}, ${q.y.toFixed(2)}, ${q.z.toFixed(2)}, ${q.w.toFixed(2)})  ` +
-        `R${e.roll.toFixed(0)}° P${e.pitch.toFixed(0)}° Y${e.yaw.toFixed(0)}°`;
+        `q(${q.x.toFixed(2)}, ${q.y.toFixed(2)}, ${q.z.toFixed(2)}, ${q.w.toFixed(2)})\n` +
+        `R ${e.roll.toFixed(0)}°  P ${e.pitch.toFixed(0)}°  Y ${e.yaw.toFixed(0)}°`;
       // 記録は間引き
       if (!$('optGyro').checked) return;
       const interval = Math.max(0, +$('optGyroInterval').value || 0);
       if (interval > 0 && (t - lastGyroLogMs) < interval) return;
+      // デッドバンド: 前回ログした姿勢からの変化が小さい(ほぼ静止)なら記録を省略
+      if ($('optDeadband').checked && lastLoggedQ) {
+        let dot = lastLoggedQ.x * q.x + lastLoggedQ.y * q.y + lastLoggedQ.z * q.z + lastLoggedQ.w * q.w;
+        dot = Math.min(1, Math.abs(dot));
+        if (2 * Math.acos(dot) < DEADBAND_RAD) return;
+      }
       lastGyroLogMs = t;
+      lastLoggedQ = q;
       const v = ev.velocity;
       let detail = `q=(${q.x.toFixed(4)}, ${q.y.toFixed(4)}, ${q.z.toFixed(4)}, ${q.w.toFixed(4)})` +
         ` euler=(${e.roll.toFixed(1)}, ${e.pitch.toFixed(1)}, ${e.yaw.toFixed(1)})deg`;
@@ -294,7 +318,12 @@ function handleEvent(ev) {
       break;
     }
     case 'FACELETS': {
-      if ($('optFacelets').checked) pushLog('FACELETS', ev.facelets);
+      // キューブは同一状態を繰り返し送ってくるため、変化が無ければ無視(重複排除)。
+      // ただし再照合の保留中(pendingResync)は、同一状態でも照合を走らせて確定/解消する。
+      if (ev.facelets === lastFacelets && !pendingResync) break;
+      const changed = ev.facelets !== lastFacelets;
+      lastFacelets = ev.facelets;
+      if (changed && $('optFacelets').checked) pushLog('FACELETS', ev.facelets);
       if ($('optConsistency').checked) checkConsistency(ev.facelets);
       break;
     }
@@ -340,13 +369,10 @@ async function doConnect() {
     connectWallMs = Date.now();
     resetCounters();
 
-    // ヘッダー(ファイル先頭に付く説明)
-    const now = new Date(connectWallMs);
+    // ヘッダー(ファイル先頭に付く説明)。個人情報保護のため、MAC/デバイス名/絶対時刻は含めない。
     headerLines = [
       '# Speed Cube Tracker ログ',
-      `# デバイス: ${conn.deviceName}  (MAC ${conn.deviceMAC})`,
-      `# 記録開始: ${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${fmtWall(connectWallMs)}`,
-      '# 形式: <接続からの秒>  <時刻>  <種別>  <詳細>',
+      '# 形式: <接続からの相対秒>  <種別>  <詳細>',
       '#   MOVE=回転操作(例 R, U\')  ROT=姿勢(クォータニオン/オイラー角°/角速度rad/s)',
       '#   FACELETS=キューブ状態(Kociemba表記)  BATTERY=電池  HARDWARE=機器情報',
       '#   MISSED=BLEレベルの取りこぼし  MISMATCH=記録手順と実機の不一致',
@@ -359,7 +385,7 @@ async function doConnect() {
     setConnectedUI(true);
     acquireWakeLock();
 
-    pushLog('CONNECT', `${conn.deviceName} (MAC ${conn.deviceMAC})`);
+    pushLog('CONNECT', '接続しました');
 
     sub = conn.events$.subscribe({
       next: handleEvent,
@@ -401,7 +427,9 @@ function onDisconnected(message) {
 
 function resetCounters() {
   moveCount = 0; gyroSeen = 0; lastGyroLogMs = -1e9;
-  lastQ = null; lastQMs = 0; lastMove = null;
+  lastQ = null; lastQMs = 0; lastLoggedQ = null;
+  lastMove = null; lastMoveAtMs = -1e9;
+  lastFacelets = null; pendingResync = false;
   dupCount = 0; missCount = 0; mismatchCount = 0; checkCount = 0;
   simState = null;
   updateStats(); updateQuality();
@@ -512,7 +540,7 @@ if (location.search.includes('debug=1')) {
       connectPerfMs = performance.now();
       connectWallMs = Date.now();
       headerLines = ['# Speed Cube Tracker ログ (debug)'];
-      pushLog('CONNECT', 'DEBUG-CUBE (MAC 00:00:00:00:00:00)');
+      pushLog('CONNECT', '接続しました');
       setConnectedUI(true);
     },
   };

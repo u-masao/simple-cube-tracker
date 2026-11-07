@@ -31,8 +31,8 @@
       <div class="stat"><span class="stat-label">電池</span><span id="statBattery" class="stat-value">—</span></div>
       <div class="stat"><span class="stat-label">手数</span><span id="statMoves" class="stat-value">0</span></div>
       <div class="stat"><span class="stat-label">直近の手</span><span id="statLastMove" class="stat-value">—</span></div>
-      <div class="stat stat-wide"><span class="stat-label">現在の姿勢</span><span id="statOrient" class="stat-value">—</span></div>
-      <div class="stat stat-wide"><span class="stat-label">検出</span><span id="statQuality" class="stat-value">重複 0 ・ 欠落 0 ・ 不整合 0</span></div>
+      <div class="stat stat-wide"><span class="stat-label">現在の姿勢</span><span id="statOrient" class="stat-value stat-orient">—</span></div>
+      <div class="stat stat-wide"><span class="stat-label">検出</span><span id="statQuality" class="stat-value">重複 0 ・ 欠落 0 ・ 不整合 0 ・ 照合 0</span></div>
     </div>
   </section>
 
@@ -42,6 +42,7 @@
     <div class="options">
       <label class="opt"><input type="checkbox" id="optGyro" checked> 回転（ジャイロ）を記録</label>
       <label class="opt">記録間隔 <input type="number" id="optGyroInterval" value="250" min="0" step="50" class="num"> ms<span class="hint">（0ですべて記録）</span></label>
+      <label class="opt"><input type="checkbox" id="optDeadband" checked> ほぼ静止時の回転を省く</label>
       <label class="opt"><input type="checkbox" id="optFacelets" checked> キューブ状態（FACELETS）を記録</label>
       <label class="opt"><input type="checkbox" id="optConsistency" checked> 整合チェック（手順と実機の照合）</label>
       <label class="opt"><input type="checkbox" id="optAutoscroll" checked> 自動スクロール</label>
