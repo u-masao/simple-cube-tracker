@@ -24,22 +24,29 @@
     <div id="status" class="status status-idle">未接続</div>
   </section>
 
-  <!-- ステータス表示 -->
+  <!-- ステータス表示(基本) -->
   <section class="panel">
     <div class="stat-grid">
       <div class="stat"><span class="stat-label">デバイス</span><span id="statDevice" class="stat-value">—</span></div>
       <div class="stat"><span class="stat-label">電池</span><span id="statBattery" class="stat-value">—</span></div>
       <div class="stat"><span class="stat-label">手数</span><span id="statMoves" class="stat-value">0</span></div>
       <div class="stat"><span class="stat-label">直近の手</span><span id="statLastMove" class="stat-value">—</span></div>
-      <div class="stat stat-wide"><span class="stat-label">現在の姿勢</span><span id="statOrient" class="stat-value stat-orient">—</span></div>
-      <div class="stat stat-wide"><span class="stat-label">検出</span><span id="statQuality" class="stat-value">重複 0 ・ 欠落 0 ・ 再同期 0 ・ 照合 0</span></div>
     </div>
   </section>
 
-  <!-- 記録オプション -->
-  <section class="panel">
-    <h2 class="panel-title">記録オプション</h2>
-    <div class="options">
+  <!-- 詳細(姿勢・検出) 折りたたみ -->
+  <details class="panel accordion">
+    <summary class="panel-title">詳細（姿勢・検出）</summary>
+    <div class="stat-grid accordion-body">
+      <div class="stat stat-wide"><span class="stat-label">現在の姿勢</span><span id="statOrient" class="stat-value stat-orient">—</span></div>
+      <div class="stat stat-wide"><span class="stat-label">検出</span><span id="statQuality" class="stat-value">重複 0 ・ 欠落 0 ・ 再同期 0 ・ 照合 0</span></div>
+    </div>
+  </details>
+
+  <!-- 記録オプション 折りたたみ -->
+  <details class="panel accordion">
+    <summary class="panel-title">記録オプション</summary>
+    <div class="options accordion-body">
       <label class="opt"><input type="checkbox" id="optGyro" checked> 回転（ジャイロ）を記録</label>
       <label class="opt">記録間隔 <input type="number" id="optGyroInterval" value="250" min="0" step="50" class="num"> ms<span class="hint">（0ですべて記録）</span></label>
       <label class="opt"><input type="checkbox" id="optDeadband" checked> ほぼ静止時の回転を省く</label>
@@ -49,7 +56,7 @@
       <label class="opt"><input type="checkbox" id="optAutoscroll" checked> 自動スクロール</label>
       <label class="opt"><input type="checkbox" id="optWakeLock" checked> 画面を常にオンにする</label>
     </div>
-  </section>
+  </details>
 
   <!-- スクランブル -->
   <section class="panel">
@@ -59,6 +66,7 @@
         <label class="opt">手数 <input type="number" id="scrambleLen" value="20" min="1" max="40" class="num"></label>
         <button id="btnScramble" class="btn btn-small btn-primary">生成</button>
         <button id="btnScrambleCopy" class="btn btn-small">コピー</button>
+        <button id="btnScrambleExit" class="btn btn-small btn-danger">解除</button>
       </div>
     </div>
     <div id="scrambleView" class="scramble">「生成」でスクランブルを表示します</div>
@@ -79,10 +87,10 @@
     <p id="toast" class="toast" role="status"></p>
   </section>
 
-  <!-- 使い方 -->
-  <section class="panel help">
-    <h2 class="panel-title">使い方・メモ</h2>
-    <ul>
+  <!-- 使い方 折りたたみ -->
+  <details class="panel accordion help">
+    <summary class="panel-title">使い方・メモ</summary>
+    <ul class="accordion-body">
       <li>対応ブラウザ: <strong>Android の Chrome</strong>、<strong>Windows の Chrome / Edge</strong>（Web Bluetooth 対応ブラウザ）。iOS の Safari は非対応です。</li>
       <li>このページは <strong>HTTPS</strong> で開いてください（GitHub Pages ならそのまま条件を満たします）。<code>file://</code> では Bluetooth が使えません。</li>
       <li><strong>接続</strong> を押すとブラウザのデバイス選択ダイアログが出ます。キューブを操作して起こしてから選んでください。</li>
@@ -90,7 +98,7 @@
       <li>出力は時系列のテキストです。<strong>コピー</strong> または <strong>ダウンロード</strong> して LLM に貼り付けてください。API 連携はありません。</li>
       <li><button id="btnForgetMac" class="linkbtn" type="button">保存した MAC アドレスを消去</button></li>
     </ul>
-  </section>
+  </details>
 </main>
 
 <footer class="app-footer">

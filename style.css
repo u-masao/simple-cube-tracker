@@ -213,6 +213,22 @@ main {
 .scramble .todo { color: var(--text); }
 .scramble-progress { font-size: 0.85rem; color: var(--muted); min-height: 1.3em; margin-top: 4px; }
 .scramble-progress.done { color: var(--ok); font-weight: 600; }
+.scramble-progress.off { color: var(--warn); font-weight: 600; }
+
+/* アコーディオン(折りたたみ) */
+details.accordion { padding: 0; }
+details.accordion > summary {
+  margin: 0; padding: 14px 16px; cursor: pointer; list-style: none;
+  display: flex; align-items: center; justify-content: space-between;
+  user-select: none;
+}
+details.accordion > summary::-webkit-details-marker { display: none; }
+details.accordion > summary::after {
+  content: '▾'; color: var(--muted); font-size: 0.9rem; transition: transform 0.15s ease;
+}
+details.accordion[open] > summary::after { transform: rotate(180deg); }
+details.accordion > summary:hover { color: var(--text); }
+.accordion-body { padding: 0 16px 14px; }
 
 /* MAC入力モーダル */
 .modal-overlay {
