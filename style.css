@@ -177,6 +177,7 @@ main {
 }
 .log .meta { color: var(--log-meta); }
 .log .slice { color: #c9a0ff; font-weight: 600; }
+.log .note { color: #79c0ff; font-weight: 600; }
 .log .warn { color: var(--log-warn); }
 .log .err  { color: var(--log-err); }
 .log .dim  { color: #6b7686; }
@@ -200,6 +201,18 @@ main {
   font-size: 0.78rem;
   text-align: center;
 }
+
+/* スクランブル */
+.scramble {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 1.1rem; line-height: 1.9; word-spacing: 0.25em; letter-spacing: 0.02em;
+  padding: 6px 2px; min-height: 2em; word-break: break-word;
+}
+.scramble .done { color: var(--muted); opacity: 0.5; }
+.scramble .cur  { color: var(--accent); font-weight: 700; text-decoration: underline; }
+.scramble .todo { color: var(--text); }
+.scramble-progress { font-size: 0.85rem; color: var(--muted); min-height: 1.3em; margin-top: 4px; }
+.scramble-progress.done { color: var(--ok); font-weight: 600; }
 
 /* MAC入力モーダル */
 .modal-overlay {

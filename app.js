@@ -32,6 +32,13 @@ let dupCount = 0, missCount = 0, mismatchCount = 0, checkCount = 0;
 const DEADBAND_RAD = 2.5 * Math.PI / 180; // これ未満の姿勢変化は「ほぼ静止」として記録省略
 const SETTLE_MS = 400;                    // 直近MOVEからこの時間内の不一致は保留(高速ターンの偽陽性対策)
 
+const SOLVED = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
+// スクランブル関連
+let currentScramble = [];   // 現在提示中のスクランブル(手の配列)
+let scramblePrefix = [];    // solvedから各手まで適用した状態(進捗判定用)
+let scrambleTarget = null;  // スクランブル適用後の状態
+let scrambleActive = false; // 追従中(完了すると false)
+
 // ---- 相対時刻(接続からの秒) ----
 const relMs = () => performance.now() - connectPerfMs;
 
@@ -207,10 +214,11 @@ function checkConsistency(reported) {
     }
     return;
   }
-  // 落ち着いた状態での不一致 → 確定
+  // 落ち着いた状態での不一致 → 多くはスライス手/持ち替え/高速操作。実機状態に再同期する。
+  // (BLEの取りこぼしは serial の飛び=MISSED で別途検出しており、これは手の欠落ではない)
   mismatchCount++;
   const diff = [...reported].filter((c, i) => c !== simState[i]).length;
-  pushLog('MISMATCH', `記録手順と実機が不一致（${diff}ステッカー差）→ 手の欠落/誤記録の可能性。基準を再セット`, 'err');
+  pushLog('SYNC', `実機状態に再同期（スライス手/持ち替え/高速操作の可能性・差分${diff}ステッカー）`, 'warn');
   syncCheckpoint(reported);
   updateQuality();
 }
@@ -272,7 +280,7 @@ function fmtRel(ms) {
 }
 
 // type別の色クラス
-const CLASS_FOR = { MOVE: '', SLICE: 'slice', ROT: 'dim', FACELETS: 'meta', BATTERY: 'meta', HARDWARE: 'meta', CONNECT: 'meta', DISCONNECT: 'meta', CHECK: 'meta', MISSED: 'warn', MISMATCH: 'err' };
+const CLASS_FOR = { MOVE: '', SLICE: 'slice', ROT: 'dim', FACELETS: 'meta', BATTERY: 'meta', HARDWARE: 'meta', CONNECT: 'meta', DISCONNECT: 'meta', CHECK: 'meta', SCRAMBLE: 'note', SYNC: 'warn', MISSED: 'warn', MISMATCH: 'err' };
 
 // 1行をログ(画面+配列)に追加
 function pushLog(type, detail, forceClass) {
@@ -303,7 +311,7 @@ function updateStats() {
   $('statMoves').textContent = String(moveCount);
 }
 function updateQuality() {
-  $('statQuality').textContent = `重複 ${dupCount} ・ 欠落 ${missCount} ・ 不整合 ${mismatchCount} ・ 照合 ${checkCount}`;
+  $('statQuality').textContent = `重複 ${dupCount} ・ 欠落 ${missCount} ・ 再同期 ${mismatchCount} ・ 照合 ${checkCount}`;
 }
 function setConnectedUI(on) {
   $('btnConnect').disabled = on;
@@ -407,6 +415,7 @@ function handleEvent(ev) {
       break;
     }
   }
+  if (scrambleActive && simState) updateScrambleProgress();
 }
 
 // =====================================================================
@@ -436,7 +445,10 @@ async function doConnect() {
       '#   MOVE=回転操作(例 R, U\')  SLICE=スライス手(M/E/S, 実機状態から推定)',
       '#   ROT=姿勢(クォータニオン/オイラー角°/角速度rad/s)',
       '#   FACELETS=キューブ状態(Kociemba表記)  BATTERY=電池  HARDWARE=機器情報',
-      '#   MISSED=BLEレベルの取りこぼし  MISMATCH=記録手順と実機の不一致',
+      '#   SCRAMBLE=提示したスクランブル  MISSED=BLEレベルの取りこぼし',
+      '#   SYNC=実機状態への再同期(スライス手/持ち替え/高速操作。手の欠落ではない)',
+      '#   ※GANはコーナー/エッジのみ送信。スライス手(M/E/S)は外2層ペアとして報告され、',
+      '#     高速スライス中はMOVE列が不正確になる場合あり。FACELETS(全状態)が正。',
       '#   face順(オイラー/面): U,R,F,D,L,B / クォータニオンは (x, y, z, w)',
       '',
     ];
@@ -501,7 +513,12 @@ function resetCounters() {
 // コピー / ダウンロード / クリア
 // =====================================================================
 function fullText() {
-  return headerLines.concat(logLines).join('\n') + '\n';
+  const head = headerLines.slice();
+  if (currentScramble.length) {
+    head.push('# スクランブル: ' + currentScramble.join(' '));
+    head.push('');
+  }
+  return head.concat(logLines).join('\n') + '\n';
 }
 
 function toast(msg, isError) {
@@ -512,22 +529,25 @@ function toast(msg, isError) {
   toast._t = setTimeout(() => { el.textContent = ''; }, 2500);
 }
 
-async function doCopy() {
-  if (logLines.length === 0) { toast('ログが空です', true); return; }
-  const text = fullText();
+async function copyToClipboard(text) {
   try {
     await navigator.clipboard.writeText(text);
-    toast('ログをコピーしました');
+    return true;
   } catch (_) {
-    // フォールバック(非セキュア/権限なし環境)
     const ta = document.createElement('textarea');
     ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
     document.body.appendChild(ta); ta.focus(); ta.select();
     let ok = false;
     try { ok = document.execCommand('copy'); } catch (_) {}
     ta.remove();
-    toast(ok ? 'ログをコピーしました' : 'コピーに失敗しました。手動で選択してください', !ok);
+    return ok;
   }
+}
+
+async function doCopy() {
+  if (logLines.length === 0) { toast('ログが空です', true); return; }
+  const ok = await copyToClipboard(fullText());
+  toast(ok ? 'ログをコピーしました' : 'コピーに失敗しました。手動で選択してください', !ok);
 }
 
 function stamp() {
@@ -557,6 +577,74 @@ function doClear() {
 }
 
 // =====================================================================
+// スクランブル
+// =====================================================================
+function generateScramble(len) {
+  const faces = ['U', 'D', 'R', 'L', 'F', 'B'];
+  const axis = { U: 0, D: 0, R: 1, L: 1, F: 2, B: 2 };
+  const sfx = ['', "'", '2'];
+  const res = [];
+  let prevFace = null, prevAxis = null, prevPrevAxis = null;
+  while (res.length < len) {
+    const f = faces[Math.floor(Math.random() * 6)];
+    if (f === prevFace) continue;                               // 同一面の連続を避ける
+    if (axis[f] === prevAxis && axis[f] === prevPrevAxis) continue; // 同一軸3連続を避ける
+    res.push(f + sfx[Math.floor(Math.random() * 3)]);
+    prevPrevAxis = prevAxis; prevAxis = axis[f]; prevFace = f;
+  }
+  return res;
+}
+
+function renderScramble(progress) {
+  const view = $('scrambleView');
+  if (!currentScramble.length) { view.textContent = '「生成」でスクランブルを表示します'; return; }
+  view.innerHTML = currentScramble
+    .map((m, i) => `<span class="${i < progress ? 'done' : (i === progress ? 'cur' : 'todo')}">${m}</span>`)
+    .join(' ');
+}
+
+function onGenerateScramble() {
+  const len = Math.min(40, Math.max(1, +$('scrambleLen').value || 20));
+  currentScramble = generateScramble(len);
+  scramblePrefix = [SOLVED];
+  let s = SOLVED;
+  for (const m of currentScramble) { s = applyMove(s, m); scramblePrefix.push(s); }
+  scrambleTarget = s;
+  scrambleActive = true;
+  renderScramble(0);
+  const prog = $('scrambleProgress');
+  prog.className = 'scramble-progress';
+  prog.textContent = conn
+    ? 'キューブを標準向き・ソルブ済みにして、上の手順で回してください'
+    : '（未接続：手動でスクランブルしてください）';
+  if (conn) pushLog('SCRAMBLE', currentScramble.join(' '));
+}
+
+function updateScrambleProgress() {
+  if (!scrambleActive || !scrambleTarget || simState == null) return;
+  let p = 0;
+  for (let i = 1; i < scramblePrefix.length; i++) if (scramblePrefix[i] === simState) p = i;
+  renderScramble(p);
+  const el = $('scrambleProgress');
+  if (simState === scrambleTarget) {
+    el.textContent = 'スクランブル完了 ✓  ソルブを開始できます';
+    el.className = 'scramble-progress done';
+    scrambleActive = false;
+    pushLog('SCRAMBLE', '適用完了（ソルブ開始）');
+  } else {
+    el.textContent = `適用 ${p} / ${currentScramble.length} 手`
+      + (p === 0 && simState !== SOLVED ? '（ソルブ済み・標準向きから始めてください）' : '');
+    el.className = 'scramble-progress';
+  }
+}
+
+async function doCopyScramble() {
+  if (!currentScramble.length) { toast('スクランブルがありません', true); return; }
+  const ok = await copyToClipboard(currentScramble.join(' '));
+  toast(ok ? 'スクランブルをコピーしました' : 'コピーに失敗しました', !ok);
+}
+
+// =====================================================================
 // 起動
 // =====================================================================
 function init() {
@@ -570,6 +658,8 @@ function init() {
   $('btnCopy').onclick = doCopy;
   $('btnDownload').onclick = doDownload;
   $('btnClear').onclick = doClear;
+  $('btnScramble').onclick = onGenerateScramble;
+  $('btnScrambleCopy').onclick = doCopyScramble;
   $('btnForgetMac').onclick = () => {
     let n = 0;
     for (let i = localStorage.length - 1; i >= 0; i--) {

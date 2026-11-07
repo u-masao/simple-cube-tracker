@@ -32,7 +32,7 @@
       <div class="stat"><span class="stat-label">手数</span><span id="statMoves" class="stat-value">0</span></div>
       <div class="stat"><span class="stat-label">直近の手</span><span id="statLastMove" class="stat-value">—</span></div>
       <div class="stat stat-wide"><span class="stat-label">現在の姿勢</span><span id="statOrient" class="stat-value stat-orient">—</span></div>
-      <div class="stat stat-wide"><span class="stat-label">検出</span><span id="statQuality" class="stat-value">重複 0 ・ 欠落 0 ・ 不整合 0 ・ 照合 0</span></div>
+      <div class="stat stat-wide"><span class="stat-label">検出</span><span id="statQuality" class="stat-value">重複 0 ・ 欠落 0 ・ 再同期 0 ・ 照合 0</span></div>
     </div>
   </section>
 
@@ -49,6 +49,20 @@
       <label class="opt"><input type="checkbox" id="optAutoscroll" checked> 自動スクロール</label>
       <label class="opt"><input type="checkbox" id="optWakeLock" checked> 画面を常にオンにする</label>
     </div>
+  </section>
+
+  <!-- スクランブル -->
+  <section class="panel">
+    <div class="log-toolbar">
+      <h2 class="panel-title">スクランブル</h2>
+      <div class="log-actions">
+        <label class="opt">手数 <input type="number" id="scrambleLen" value="20" min="1" max="40" class="num"></label>
+        <button id="btnScramble" class="btn btn-small btn-primary">生成</button>
+        <button id="btnScrambleCopy" class="btn btn-small">コピー</button>
+      </div>
+    </div>
+    <div id="scrambleView" class="scramble">「生成」でスクランブルを表示します</div>
+    <div id="scrambleProgress" class="scramble-progress"></div>
   </section>
 
   <!-- ログ -->
